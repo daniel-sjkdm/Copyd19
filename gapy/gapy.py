@@ -1,29 +1,36 @@
-from .service import get_service 
-from rich.console import Console
+import io
 from rich.table import Table
 from rich.progress import track
+from .service import get_service 
+from rich.console import Console
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from .utils import VALID_ORDERING, VALID_SPACES, rfc3339_to_human_readable, get_file_mimetype
-from googleapiclient.http import MediaFileUpload
+import logging
 
 
-# TODO
-# - [ ] Folders are created, verify if can be created under a given directory
-
+logging.basicConfig(
+    level=logging.INFO,
+    filename="./gapy/logs/gapy.log",
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
 
 class Gapy():
     def __init__(self):
         self.service = get_service()
         self.console = Console()
+        self.logger = logging.getLogger("gapy")
 
 
-    def list_files(self, pageSize=None, orderBy=None, spaces=None):
+    def list_files(self, orderBy=None, spaces=None, _print=False):
         """
             Display the files (directories and folders) inside a table.
             pageSize: The response data will be split into pages of the given size
             spaces: List only the files inside a given space
         """
-        result = self.service.files().list(pageSize=pageSize, orderBy=orderBy, spaces=spaces, fields="nextPageToken, files(id, createdTime, name, size, parents, spaces)").execute()
+
+        result = self.service.files().list(orderBy=orderBy, spaces=spaces, fields="nextPageToken, files(id, createdTime, name, size, parents, spaces)").execute()
         
         files = result.get("files", [])
         
@@ -31,32 +38,43 @@ class Gapy():
             self.console("No files were found")
         
         else:
-            table = self.build_table()
-            for file in files:
-                _id = file["id"]
-                created = rfc3339_to_human_readable(file["createdTime"])
-                name = file["name"]
-                try:
-                    size = str(float(file["size"])*(1/1000))
-                except KeyError: 
-                    size = "-"
-                parents = ", ".join([ self.get_filename_by_id(f) for f in file["parents"] ])  # list of parents id's
-                spaces = ", ".join(file["spaces"])
 
-                table.add_row(_id, created, name, size, spaces, parents)
-            self.console.print(table)
+            if _print:
+                table = self.build_table()
+
+                for file in files:
+                    _id = file["id"]
+                    created = rfc3339_to_human_readable(file["createdTime"])
+                    name = file["name"]
+                    try:
+                        size = str(float(file["size"])*(1/1000))
+                    except KeyError: 
+                        size = "-"
+                    try:
+                        parents = ", ".join([ self.get_filename_by_id(f) for f in file["parents"] ])
+                    except KeyError:
+                        parents = [""]
+                    spaces = ", ".join(file["spaces"])
+
+                    table.add_row(_id, created, name, size, spaces, parents[0])
+                self.console.print(table)
+            else:
+                return files
 
 
     def create_file(self, file_name, path=None, parents_id=None, spaces=None, isFolder=False):
         """
+            file_name: file name
+            path: Path to the file that will be uploaded
             parents_id: (optional) a list containing the id's of the parent folders that will store
                         the file
                         default: My Drive folder
-        """
+            spaces: space(s) to upload the file see VALID_SPACES
+                    default: drive
+            isFolder: Whether the file is a folder or not
 
-        if self.find_file(file_name, parents_id=parents_id[0]):
-            self.console.print("The folder {} already exist".format(file_name), style="bold red")
-            return False
+            Returns the ID of the recently created file
+        """
 
         body = { "name": file_name }
 
@@ -66,12 +84,12 @@ class Gapy():
         if isFolder:
             body["mimeType"] = "application/vnd.google-apps.folder"
             response = self.service.files().create(body=body, fields="id").execute()
-            self.console.print("Folder created with id {}".format(response.get("id")), style="yellow")
-            return response
+            self.logger.info("Folder created {} with id {}".format(file_name, response.get("id")))
+            return response.get("id")
 
         if spaces:
             if spaces not in VALID_SPACES:
-                self.console.print("Invalid space name, must be one of {}".format(", ".join(VALID_SPACES)))
+                self.logger.error("Invalid space name, must be one of {}".format(", ".join(VALID_SPACES)))
                 raise Exception
             body['spaces'] = spaces
 
@@ -83,45 +101,98 @@ class Gapy():
     
         response = self.service.files().create(body=body, media_body=media, fields="id").execute()
 
-        self.console.print("File created with id {}".format(response.get("id")))
+        self.logger.info("File created {} with id {}".format(file_name, response.get("id")))
+
+        return response.get("id")
 
 
     def get_filename_by_id(self, file_id):
+        """
+            Returns the name of a file given its id
+        """
+
         response = self.service.files().get(fileId=file_id).execute()
+        
         return response.get("name")
     
 
-    def download_file(self, file_id):
-        request = self.service.files().get_media(fileId=file_id).execute()
+    def download_file(self, file_id, path):
+        """
+            Download the file with the given id at the directory specified by path
+            file_id: id of the file 
+            path: absolute path
+        """
+        
+        file_name = self.get_filename_by_id(file_id)
+        
+        request = self.service.files().get_media(fileId=file_id)
+        
+        fh = io.BytesIO()
+        
+        downloader = MediaIoBaseDownload(fh, request)
+        
+        done = False
+        
+        while done is False:
+            status, done = downloader.next_chunk()
+            self.console.print("Downloading {} : {}".format(file_name, int(status.progress()*100)))
+        
+        with open(path + "/" + file_name, "wb") as downloaded_file:
+            downloaded_file.write(fh.getbuffer())
+
+        self.logger.info("The file {} was downloaded".format(file_name))
 
 
     def delete_file(self, file_id):
-        self.service.files().delete(fileId=file_id)
+        """
+            Delete the file with the id provided
+        """
+        self.service.files().delete(fileId=file_id)     
+        file_name = self.get_filename_by_id(file_id)
+        self.logger.warn("The file {} was deleted".format(file_name))
 
 
-    def update(self, file_id):
-        self.service.update()
+    def update_file(self, file_id, path):
+        """
+            Update the file's content with the given id
+        """
+        file_name = self.get_filename_by_id(file_id)
+        mimetype = get_file_mimetype(file_name)
+        media = MediaFileUpload(f"{path}/{file_name}", mimetype=mimetype)
+        body = { "name": file_name }
+
+        self.service.files().update(fileId=file_id, body=body, media_body=media).execute()
+        self.logger.info("The file {} was updated!".format(file_name))
 
 
     def generate_ids(self, count=1):
+        """
+            Generate ids that can be used to create files
+        """
         ids = self.service.files().generateIds(count=count).execute()
         return ids.get("ids")
 
 
     def find_file(self, file_name, parents_id=None):
+        """
+            Find a file under the parents_id folders (if provided)
+        """
+
         if parents_id:
             query = f"name='{file_name}' and parents='{parents_id}'"
         else:
             query = f"name='{file_name}'"
+
         response = self.service.files().list(
             q=query,
-            fields="nextPageToken, files(id, name)",
+            fields="nextPageToken, files(id, name, parents)",
             pageToken=None
         ).execute()
+
         if response.get("files", []):
-            return True
+            return response.get("files", [])
         else:
-            return False
+            return []
 
 
     def build_table(self):
