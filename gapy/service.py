@@ -6,12 +6,13 @@ from google.auth.transport.requests import Request
 
 
 SCOPES = [
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.metadata",
+    "https://www.googleapis.com/auth/drive.file"
 ]
 
 
 def get_service():
-    print(os.getcwd())
     creds = None
     if os.path.exists("./gapy/token.pickle"):
         with open("./gapy/token.pickle", "rb") as token:
