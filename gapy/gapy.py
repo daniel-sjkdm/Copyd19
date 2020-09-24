@@ -119,7 +119,7 @@ class Gapy():
     def download_file(self, file_id, path):
         """
             Download the file with the given id at the directory specified by path
-            file_id: id of the file 
+            file_id: id of the file
             path: absolute path
         """
         
@@ -149,7 +149,7 @@ class Gapy():
         """
         self.service.files().delete(fileId=file_id)     
         file_name = self.get_filename_by_id(file_id)
-        self.logger.warn("The file {} was deleted".format(file_name))
+        self.logger.warn("The file {} was deleted from Google Drive".format(file_name))
 
 
     def update_file(self, file_id, path):
