@@ -34,17 +34,6 @@ def watch(path, watch_time):
     """
 
     fsh = FSHandler(path)
-    # create = input("\nDo you want to upload the directory? [y/n]: ")
-
-    # if re.fullmatch("[yY]", create):
-    #     fsh.upload_handler()
-    # elif re.fullmatch("[nN]", create):
-    #     pass
-    #     if not fsh.filesystem:
-    #         print("Creating the filesystem")
-    #         # fsh.create_fs()
-    # else:
-        # raise Exception("\nInvalid choice")
     
     click.secho("\nObserving {} every {} seconds".format(path, watch_time), fg="green")
     observer = Observer()
