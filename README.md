@@ -25,12 +25,11 @@ Gapy is a command line program that connects to the Google Drive API to perform 
    $ pip install -r requirements.txt
    ```
 9. Make a backup folder somewhere in your file system
-10. Add the path to your folder in .env file as PATH variable
-11. Run the setup script:
+10. Run the setup script:
     ```
     $ pip install --editable .
     ```
-12. The script can now be started as:
+11. The script can now be started as:
     ```
     $ gdrivepy <commands>
     ``` 
